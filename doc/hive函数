@@ -1,0 +1,153 @@
+
+
+1. UNIX时间戳转日期函数: from_unixtime
+    select from_unixtime(1323308943,'yyyyMMdd') from tableName;
+2、获取当前UNIX时间戳函数: unix_timestamp
+    select unix_timestamp() from tableName
+3、日期转UNIX时间戳函数: unix_timestamp
+    select unix_timestamp('2011-12-07 13:01:03') from tableName;
+4、指定格式日期转UNIX时间戳函数: unix_timestamp
+    select unix_timestamp('20111207 13:01:03','yyyyMMdd HH:mm:ss') from tableName;
+5、日期时间转日期函数: to_date 
+    select to_date('2011-12-08 10:03:01') from tableName
+6、日期转年函数: year
+    select year('2011-12-08 10:03:01') from tableName;
+
+
+13、日期比较函数: datediff 
+    select datediff('2012-12-08','2012-05-09') from tableName;
+14、日期增加函数: date_add
+    select date_add('2012-12-08',10) from tableName;
+15、日期减少函数: date_sub
+    select date_sub('2012-12-08',10) from tableName;
+
+16、Hive中 两个日期相差多少小时
+    select (unix_timestamp('2019-09-15 12:03:55') - unix_timestamp('2019-09-15 11:03:55'))/3600
+17、hive返回上个月第一天和最后一天
+
+    --上个月第一天
+    select trunc(add_months(CURRENT_TIMESTAMP,-1),'MM')
+
+    select concat(substr(add_months(from_unixtime(unix_timestamp(),'yyyy-MM-dd'),-1),1,7),'-01'); 
+
+    --上个月最后一天
+    select date_sub(trunc(CURRENT_TIMESTAMP,'MM'),1);
+ 18、hive获取当前时间
+    >select current_date from dual;  -- 2019-03-15
+    >select current_timestamp from dual; --2019-03-15 15:47:25
+19 hive加减月份
+    add_months
+
+
+
+20、json解析函数：get_json_object
+
+
+
+列转行
+    lateral view explode(split())
+
+行转列
+    CONCAT CONCAT_WS COLLECT_SET
+
+    collect_list 不去重，collect_set 去重
+
+窗口函数
+
+    preceding：往前
+
+    ​ following：往后
+
+    ​ current row：当前行
+
+    ​ unbounded：起点
+
+    ​ unbounded preceding 表示从前面的起点
+
+    ​ unbounded following：表示到后面的终点
+
+
+    窗口排序函数提供了数据的排序信息，比如行号和排名。在一个分组的内部将行号或者排名作为数据的一部分进行返回，最常用的排序函数主要包括：
+
+    row_number
+    根据具体的分组和排序，为每行数据生成一个起始值等于1的唯一序列数
+
+    rank
+    对组中的数据进行排名，如果名次相同，则排名也相同，但是下一个名次的排名序号会出现不连续。比如查找具体条件的topN行
+
+    dense_rank
+    dense_rank函数的功能与rank函数类似，dense_rank函数在生成序号时是连续的，而rank函数生成的序号有可能不连续。当出现名次相同时，则排名序号也相同。而下一个排名的序号与上一个排名序号是连续的。
+
+    percent_rank
+    排名计算公式为：(current rank - 1)/(total number of rows - 1)
+
+    ntile
+    将一个有序的数据集划分为多个桶(bucket)，并为每行分配一个适当的桶数。它可用于将数据划分为相等的小切片，为每一行分配该小切片的数字序号。
+
+
+窗口分析函数
+介绍
+常用的分析函数主要包括：
+
+    cume_dist
+    如果按升序排列，则统计：小于等于当前值的行数/总行数(number of rows ≤ current row)/(total number of rows）。如果是降序排列，则统计：大于等于当前值的行数/总行数。比如，统计小于等于当前工资的人数占总人数的比例 ，用于累计统计.
+
+    lead(value_expr[,offset[,default]])
+    用于统计窗口内往下第n行值。第一个参数为列名，第二个参数为往下第n行（可选，默认为1），第三个参数为默认值（当往下第n行为NULL时候，取默认值，如不指定，则为NULL.
+
+    lag(value_expr[,offset[,default]])
+    与lead相反，用于统计窗口内往上第n行值。第一个参数为列名，第二个参数为往上第n行（可选，默认为1），第三个参数为默认值（当往上第n行为NULL时候，取默认值，如不指定，则为NULL.
+
+    first_value
+    取分组内排序后，截止到当前行，第一个值
+
+    last_value
+    取分组内排序后，截止到当前行，最后一个值
+聚合下钻
+
+
+
+
+
+
+
+
+查看表容量
+
+二、查看表容量大小
+
+方法1：查看一个hive表文件总大小时(单位为Byte)，我们可以通过一行脚本快速实现，其命令如下：
+
+–#查看普通表的容量
+
+    $ hadoop fs -ls /user/hive/warehouse/table_name|awk -F ’ ’ ‘{print $5}’|awk ‘{a+=$1}END{print a}’
+
+    48
+
+这样可以省去自己相加，下面命令是列出该表的详细文件列表
+
+    $ hadoop fs -ls /user/hive/warehouse/table_name
+
+–#查看分区表的容量
+
+    $ hadoop fs -ls /user/hive/warehouse/table_name/yyyymm=201601|awk -F ’ ’ ‘{print $5}’|awk '{a+=$1}END
+
+    {print a/(102410241024)}’
+    39.709
+
+这样可以省去自己相加，下面命令是列出该表的详细文件列表
+
+    $ hadoop fs -ls /user/hive/warehouse/table_name/yyyymm=201601
+
+方法2：查看该表总容量大小，单位为G
+
+    $ hadoop fs -du /user/hive/warehouse/table_name|awk ‘{ SUM += $1 } END { print SUM/(102410241024)}’
+
+方法3：
+
+    /hadoop/hadoop/bin/hadoop fs -du /TransferData/ | awk ‘{ sum=$1 ;dir2=$2 ; hum[10243]=“Gb”;hum[10242]=“Mb”;hum[1024]=“Kb”; for (x=1024**3; x>=1024; x/=1024){ if (sum>=x) { printf “%.2f %s \t %s\n”,sum/x,hum[x],dir2;break } }}’
+
+查看库大小
+
+    hadoop fs -du -s -h /user/hive/warehouse/ods.db
+

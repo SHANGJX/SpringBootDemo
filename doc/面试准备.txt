@@ -1,0 +1,331 @@
+MapReduce流程
+    1、获取待处理文件信息，得到文件大小，文件存储位置
+    2、根据切片参数，准备文件切片信息，如上假设按照默认块大小切片
+    0-128M
+    129-200M
+    两个数据片
+    3、切片完成有由客户端向yarn提交：job信息、split切片信息、jar包
+    4、Appmaster根据提交信息计算出开启几个Maptask，其实是由切片个数决定的，它实际决定将开启哪些节点运行任务
+    5、开启的MapTask按照切片信息加载数据，默认是TextInputFormat所以数据加载规则是一次读取一行，默认key是字节偏移量，value为当前行数据
+    6、读取数据后，调用jar中编写的mapper运行map函数，调用编写的运算逻辑。
+    7、将运算后的k，v数据写出到环形缓存区。–shuffle开始位置
+    8、环形缓存区默认100M，当数据达到80%对数据溢写到本地文件；
+    缓存区大小可自行设置，如果服务器配置高可提高大小，减少数据溢写过程
+    9、从环形缓冲区不断溢出本地磁盘文件，可能会溢出多个文件，在溢出过程及合并的过程中，都要调用Partitioner进行分区和针对key进行排序；
+    10、当溢写文件达到一定数量后，多个溢出文件会被合并成大的溢出文件并排序，最后在map处理数据完毕后会将磁盘上所有文件进行归并排序合并成一个大文件，(减少reducetask读取时的小文件问题)；
+
+    这里使用归并排序，因为数据本身已经有序，所以使用归并效率高。
+    11、combiner合并：这步是自行设置的默认没有，可以在不影响最终结果的情况下，在map段进行一次数据合并，也就是reduce计算。(切记不能影响最终结算结果的情况下使用)，提前合并计算，会减少数据在网络中传输时间。
+    ------以上时maptask端进行
+    12、所有maptask任务完成后，启动相应的reducetask个数，非特殊情况下应将reducetask个数设置与分区个数一样。
+
+    13、reducetask任务运行，每个ReduceTask根据自己的分区号，去各个MapTask机器上拷贝相应的结果分区数据，如果文件大小超过一定阈值，则溢写到文件上，
+    如果磁盘上文件数目达到一定阈值，则进行一次归并排序、合并生成一个更大的文件，如果内存中的文件大小或者数目超过一定阈值，
+    则进行一次合并后将数据溢写到磁盘上。当所有maptask上所有需要的数据拷贝完后，ReduceTask统一对内存与磁盘上的所有数据进行 一次归并排序，
+    合并成大文件
+    14-15、对文件内数据按照key分组，并且一次读取一组数据到自己编写的reduce逻辑运算函数中；
+    运算逻辑开始前数据分组后是：Shuffle的结束过程
+    16、将reduce运算结果写出到本地文件中，默认是TextOutputFormat，reduce对文件中分组数据运算结束后，整个mr任务工作流程结束。
+
+
+
+HDFS读写流程
+读：
+    1）客户端通过Distributed FileSystem向NameNode请求下载文件，NameNode通过查询元数据，找到文件块所在的DataNode地址。
+    2）挑选一台DataNode（就近原则，然后随机）服务器，请求读取数据。
+    3）DataNode开始传输数据给客户端（从磁盘里面读取数据输入流，以packet为单位来做校验）。
+    4）客户端以packet为单位接收，先在本地缓存，然后写入目标文件。
+
+
+写：
+    1）客户端通过Distributed FileSystem模块向NameNode请求上传文件，NameNode检查目标文件是否已存在，父目录是否存在。
+    2）NameNode返回是否可以上传。
+    3）客户端请求第一个 block上传到哪几个datanode服务器上。
+    4）NameNode返回3个datanode节点，分别为dn1、dn2、dn3。
+    5）客户端通过FSDataOutputStream模块请求dn1上传数据，dn1收到请求会继续调用dn2，然后dn2调用dn3，将这个通信管道建立完成。
+    6）dn1、dn2、dn3逐级应答客户端。
+    7）客户端开始往dn1上传第一个block（先从磁盘读取数据放到一个本地内存缓存），以packet为单位，dn1收到一个packet就会传给dn2，dn2传给dn3；dn1每传一个packet会放入一个应答队列等待应答。
+    8）当一个block传输完成之后，客户端再次请求NameNode上传第二个block的服务器。（重复执行3-7步）。
+
+
+
+YARN调度流程
+
+
+
+
+Spark流程
+
+YARN-Client
+    1.Spark Yarn Client向YARN的ResourceManager申请启动Application Master。同时在SparkContent初始化中将创建DAGScheduler和TASKScheduler等，由于我们选择的是Yarn-Client模式，程序会选择YarnClientClusterScheduler和YarnClientSchedulerBackend；
+
+    2.ResourceManager收到请求后，在集群中选择一个NodeManager，为该应用程序分配第一个Container，要求它在这个Container中启动应用程序的ApplicationMaster，与YARN-Cluster区别的是在该ApplicationMaster不运行SparkContext，只与SparkContext进行联系进行资源的分派；
+
+    3.Client中的SparkContext初始化完毕后，与ApplicationMaster建立通讯，向ResourceManager注册，根据任务信息向ResourceManager申请资源（Container）；
+
+    4.一旦ApplicationMaster申请到资源（也就是Container）后，便与对应的NodeManager通信，要求它在获得的Container中启动启动CoarseGrainedExecutorBackend，CoarseGrainedExecutorBackend启动后会向Client中的SparkContext注册并申请Task；
+
+    5.Client中的SparkContext分配Task给CoarseGrainedExecutorBackend执行，CoarseGrainedExecutorBackend运行Task并向Driver汇报运行的状态和进度，以让Client随时掌握各个任务的运行状态，从而可以在任务失败时重新启动任务；
+
+    6.应用程序运行完成后，Client的SparkContext向ResourceManager申请注销并关闭自己。
+
+
+
+
+YARN-Cluster
+    1.   Spark Yarn Client向YARN中提交应用程序，包括ApplicationMaster程序、启动ApplicationMaster的命令、需要在Executor中运行的程序等；
+
+    2.   ResourceManager收到请求后，在集群中选择一个NodeManager，为该应用程序分配第一个Container，要求它在这个Container中启动应用程序的ApplicationMaster，其中ApplicationMaster进行SparkContext等的初始化；
+
+    3.   ApplicationMaster向ResourceManager注册，这样用户可以直接通过ResourceManage查看应用程序的运行状态，然后它将采用轮询的方式通过RPC协议为各个任务申请资源，并监控它们的运行状态直到运行结束；
+
+    4.   一旦ApplicationMaster申请到资源（也就是Container）后，便与对应的NodeManager通信，要求它在获得的Container中启动启动CoarseGrainedExecutorBackend，CoarseGrainedExecutorBackend启动后会向ApplicationMaster中的SparkContext注册并申请Task。这一点和Standalone模式一样，只不过SparkContext在Spark Application中初始化时，使用CoarseGrainedSchedulerBackend配合YarnClusterScheduler进行任务的调度，其中YarnClusterScheduler只是对TaskSchedulerImpl的一个简单包装，增加了对Executor的等待逻辑等；
+
+    5.   ApplicationMaster中的SparkContext分配Task给CoarseGrainedExecutorBackend执行，CoarseGrainedExecutorBackend运行Task并向ApplicationMaster汇报运行的状态和进度，以让ApplicationMaster随时掌握各个任务的运行状态，从而可以在任务失败时重新启动任务；
+
+    6.   应用程序运行完成后，ApplicationMaster向ResourceManager申请注销并关闭自己。
+数据倾斜
+
+
+
+
+Hive函数
+
+
+
+
+UDF、UDTF、UDAF
+
+    UDF=User Defined Function。用户自定义函数，一进一出
+    UDAF=User Defined Aggregation Function。用户自定义聚集函数，多进一出；类似于：count/max/min
+    UDTF=User Defined Table-Generating Functions。用户自定义表生成函数，一进多出；类似于：explode
+    UDF开发注意事项：
+    1.1. 继承org.apache.hadoop.hive.ql.exec.UDF
+    1.2. 需要实现evaluate函数；evaluate函数支持重载
+    1.3. UDF必须要有返回类型，可以返回null，但是返回类型不能为void
+    UDF开发步骤：
+    1.1. 开发java类继承UDF，实现evaluate 方法
+    1.2. 将项目打包上传服务器
+    1.3. 添加开发的jar包：add jar /home/hadoop/hiveudf.jar;
+
+Hive 调优
+
+    1 Fetch抓取
+        Fetch抓取是指，Hive中对某些情况的查询可以不必使用MapReduce计算。
+        例如：SELECT * FROM employees;在这种情况下，Hive可以简单地读取employee对应的存储目录下的文件，然后输出查询结果到控制台
+    2 本地模式
+        大多数的Hadoop Job是需要Hadoop提供的完整的可扩展性来处理大数据集的。不过，
+        有时Hive的输入数据量是非常小的。在这种情况下，为查询触发执行任务时消耗可能会比实际job的执行时间要多的多。
+        对于大多数这种情况，Hive可以通过本地模式在单台机器上处理所有的任务。对于小数据集，执行时间可以明显被缩短。
+        用户可以通过设置hive.exec.mode.local.auto的值为true，来让Hive在适当的时候自动启动这个优化。
+
+        set hive.exec.mode.local.auto=true;  //开启本地mr
+        //设置local mr的最大输入数据量，当输入数据量小于这个值时采用local  mr的方式，默认为134217728，即128M
+        set hive.exec.mode.local.auto.inputbytes.max=50000000;
+        //设置local mr的最大输入文件个数，当输入文件个数小于这个值时采用local mr的方式
+
+    3 表的优化
+        1 小表、大表Join
+            将key相对分散，并且数据量小的表放在join的左边，这样可以有效减少内存溢出错误发生的几率；
+            再进一步，可以使用Group让小的维度表（1000条以下的记录条数）先进内存。在map端完成reduce。
+            实际测试发现：新版的hive已经对小表JOIN大表和大表JOIN小表进行了优化。小表放在左边和右边已经没有明显区别。
+        2.大表Join大表
+            1）空KEY过滤
+                有时join超时是因为某些key对应的数据太多，而相同key对应的数据都会发送到相同的reducer上，
+                从而导致内存不够。此时我们应该仔细分析这些异常的key，很多情况下，这些key对应的数据是异常数据，
+                我们需要在SQL语句中进行过滤。例如key对应的字段为空
+            2）空key转换
+                有时虽然某个key为空对应的数据很多，但是相应的数据不是异常数据，
+                必须要包含在join的结果中，此时我们可以表a中key为空的字段赋一个随机的值，使得数据随机均匀地分不到不同的reducer上
+        3 MapJoin
+            如果不指定MapJoin或者不符合MapJoin的条件，那么Hive解析器会将Join操作转换成Common Join，即：
+            在Reduce阶段完成join。容易发生数据倾斜。可以用MapJoin把小表全部加载到内存在map端进行join，避免reducer处理
+        4 Group By
+            默认情况下，Map阶段同一Key数据分发给一个reduce，当一个key数据过大时就倾斜了。
+            并不是所有的聚合操作都需要在Reduce端完成，很多聚合操作都可以先在Map端进行部分聚合，最后在Reduce端得出最终结果。
+
+            1）开启Map端聚合参数设置
+                （1）是否在Map端进行聚合，默认为True
+                hive.map.aggr = true
+                （2）在Map端进行聚合操作的条目数目
+                    hive.groupby.mapaggr.checkinterval = 100000
+                （3）有数据倾斜的时候进行负载均衡（默认是false）
+                    hive.groupby.skewindata = true
+                    当选项设定为 true，生成的查询计划会有两个MR Job。第一个MR Job中，Map的输出结果会随机分布到Reduce中，
+                    每个Reduce做部分聚合操作，并输出结果，这样处理的结果是相同的Group By Key有可能被分发到不同的Reduce中，
+                    从而达到负载均衡的目的；第二个MR Job再根据预处理的数据结果按照Group By Key分布到Reduce中（这个过程可以保证相同的Group By 
+                    Key被分布到同一个Reduce中），最后完成最终的聚合操作。
+
+        5 Count(Distinct) 去重统计
+            数据量小的时候无所谓，数据量大的情况下，由于COUNT DISTINCT操作需要用一个Reduce Task来完成，
+            这一个Reduce需要处理的数据量太大，就会导致整个Job很难完成，一般COUNT DISTINCT使用先GROUP BY再COUNT的方式替换
+
+        6 笛卡尔积
+            尽量避免笛卡尔积，join的时候不加on条件，或者无效的on条件，Hive只能使用1个reducer来完成笛卡尔积
+
+        7 行列过滤
+            列处理：在SELECT中，只拿需要的列，如果有，尽量使用分区过滤，少用SELECT *。
+            行处理：在分区剪裁中，当使用外关联时，如果将副表的过滤条件写在Where后面，那么就会先全表关联，之后再过滤
+
+
+
+
+
+
+
+
+
+            
+Hive常见问题
+
+
+
+
+数仓建模分层
+
+
+
+Flume
+
+
+
+
+
+Sqoop
+
+
+
+
+
+
+
+
+一.MR的Shuffle
+  mapShuffle
+       数据存到hdfs中是以块进行存储的，每一个块对应一个分片，maptask就是从分片中获取数据的
+       在某个节点上启动了map Task,map Task读取是通过k-v来读取的,读取的数据会放到环形缓存区，这样做的目的是为了防止IO的访问次数,然后环形缓存区的内存达到一定的阀值的
+       时候会把文件益写到磁盘，溢出的各种小文件会合并成一个大文件，这个合并的过程中会进行排序，这个排序叫做归并排序
+   1.1map阶段会涉及到
+      1.1.1.sort排序(默认按字典排序)
+      1.1.2.合并(combiner合并)
+      1.1.3.文件合并(merage 合并 总共有三种，默认是内存到磁盘)
+      1.1.4.压缩（设置压缩就会执行）
+  reduce Shuffle
+       归并排序完成后reduce端会拉取map端的数据，拉取的这个过程叫做copy过程，拉取的数据合并成一个文件，GroupComparator(默认,这个我们也可以自定义)是专门对文件夹里面的key进行分组
+       然后就形成k-List(v1,v2,v3)的形式，然后reduce经过业务处理，最终输出到hdfs，如果设置压缩就会执行，不设置则不执行
+   1.2 reduce阶段会涉及到：
+      1.2.1.sort排序
+      1.2.2.分组（将相同的key的value放到一个容器的过程）
+      1.2.3.merge文件合并
+      1.2.4.压缩
+二.spark shuffle的版本一
+      2.1.rdd中一个partition对应一个shufflemapTask任务，因为某个节点上可以有多个分区，所以可以有多个shufflemapTask
+      2.2.每一个shufflemapTask都会为每一个resultTask创建一个bucket缓存(内存)，bucket的数量=M x R,当内存达到一定值的时候会益写到shuffleblockfile文件中
+      2.3.shuffleMap task会封装成一个叫mapStatus,这个mapstatus里面包含了每一个resultTask拉取数据的大小
+      2.4 Mapstatus： 是ShuffleMapTask返回调度器scheduler的对象，包括任务运行的块管理器地址和对应每个reducer的输出大小。
+          如果partitions的数量大于2000，则用HighlyCompressedMapStatus，否则用CompressedMapStatus。
+      2.5.每一个resultTask拉取过来的数据，就会在内部形成一个rdd,这个rdd叫做shuffleRdd,这个rdd的数据优先存放到内存中，内存中不够然后存到磁盘里
+          如果是groupByKey算子就结束了,下次执行ReduceByKey的时候，再进行相同key的聚合操作，这个时候会把shuffle rdd进行聚合操作生成mapPartitionRdd,就是我们执行reduceByKey之后得到的那个rdd
+spark shuffle的版本二
+      缺点:版本一的shuffle方式中会产生大量的小文件，
+      版本二的优点:就是为了减少这么多小文件的生成,bucket的数量=cpu*resultTask的个数
+      版本二设计的原理:一个shuffleMapTask还是会写入resultTask对应个数的本地文件，但是当下一个shuffleMapTask运行的时候会直接把数据写到之前已经建立好的本地文件，这个文件可以复用，这种复用机制叫做consolidation机制
+      我们把这一组的shuffle文件称为shuffleGroup,每个文件中都存储了很多shuffleMapTask对应的数据，这个文件叫做segment,这个时候因为不同的shuffleMapTask都是存在一个文件中
+      所以建立索引文件，来标记shuffleMapTask在shuffleBlockFile的位置+偏移量，这样就可以在一个文件里面把不同的shuffleMaptask数据分出来
+spark shuffle的版本三
+       版本三的优点：是通过排序建立索引，相比较于版本二，它只有一个临时文件，不管有多少个resultTask都只有一个临时文件，
+       缺点:这个排序操作是一个消耗CPU的操作，代价是会消耗很多的cpu
+       版本二占用内存多，打开文件多，但不需排序，速度快。版本三占用内存少，打开文件少，速度相对慢。实践证明使用第二种方案的应用场景更多些。
+三、shuffle的读流程
+       1.有一个类blockManager，封装了临时文件的位置信息,resultTask先通过blockManager,就知道我从哪个节点拿数据
+       如果是远程，它就是发起一次socket请求，创建一个socket链接。然后发起一次远程调用，告诉远程的读取程序，读取哪些数据。读到的内容再通过socket传过来。
+       2.一条条读数据和一块块读数据的优缺点？
+             2.1如果是一条条读取的话，实时性好，性能低下
+             2.2一块块读取的话性能高，但是实时性不好
+       Shuffle读由reduce这边发起，它需要先到临时文件中读，一般这个临时文件和reduce不在一台节点上，它需要跨网络去读。但也不排除在一台服务器。不论如何它需要知道临时文件的位置，
+      这个是谁来告诉它的呢？它有一个BlockManager的类。这里就知道将来是从本地文件中读取，还是需要从远程服务器上读取。
+       读进来后再做join或者combine的运算。
+       这些临时文件的位置就记录在Map结构中。
+       可以这样理解分区partition是RDD存储数据的地方，实际是个逻辑单位，真正要取数据时，它就调用BlockManage去读，它是以数据块的方式来读。
+       比如一次读取32k还是64k。它不是一条一条读，一条一条读肯定性能低。它读时首先是看本地还是远程，如果是本地就直接读这个文件了，
+       如果是远程，它就是发起一次socket请求，创建一个socket链接。然后发起一次远程调用，告诉远程的读取程序，读取哪些数据。读到的内容再通过socket传过来。
+
+
+
+
+
+
+
+SparkSQL的优化：（Spark on Hive）
+（1）内存优化
+①合理设置资源配置
+–num-executors executor的个数
+–executor-memory 每个executor的内存
+–driver-memory Driver端的内存
+②DS和DF的缓存持久化
+DS和DF默认的缓存级别是MEMORY_AND_DISK
+③DS和DF并不是使用java序列化和kryo序列化，而是有一个特殊的序列化方式
+（2）分区和参数设置
+①SparkSQL默认shuffle的分区个数为200，由spark.sql.shuffle.partitions决定
+②凡是有shuffle过程的就会产生200个小文件，所以需要使用coalesce缩小分区
+③合理使用CPU资源
+–executor-cores
+–num-executors
+如果有3个executor，每个有4个core，那么一共会有12个核
+如何合理的设置CPU资源呢？
+分区个数（task的个数）为core的2-3倍
+（3）使用广播join
+①什么是广播join
+将小表聚合到Driver端，然后再广播到各个大表分区所在的executor中，这样相当于大表的各个分区和小表在本地join了，从而优化掉shuffle
+②什么样的表才是小表呢？
+spark.sql.autoBroadcastJoinThreshold=10M
+③如何开启广播join？
+set(“Spark.sql.autoBroadcastJoinThreshold”, 10485760)
+（4）小表和大表join
+①有可能出现数据倾斜，大表中某个key特别多，小表中对应的key特别少
+②使用广播join
+③打算大表，扩容小表（给大表添加随机前缀，同时给小表扩容为对应的key，如何扩容呢？ 可以将key放到List[10]，然后使用flatMap打散的过程变成这样的key）
+（5）大表和大表join
+①使用SMBjoin
+原理是：首先会进行排序，根据key值进行合并，把相同key的数据放到同一个桶中（按照key进行hash），分桶的目的就是把大表化成小表，相同key的数据在一个桶中，再join
+②使用条件：
+a. 两个表分桶，桶的个数必须相等
+b. 两边进行join，join列=排序列=分桶列
+（6）堆外内存的使用
+①spark2.x版本：
+–spark.executor.memory
+–spark.executor.memoryOverhead
+②spark3.x版本：
+–spark.executor.memory
+–spark.executor.memoryOverhead（默认大小为min(384M, 堆内内存*0.1)）
+–spark.executor.offHeap.size（默认关闭）
+③如何开启堆外内存？
+–spark.memory.enable.offHeap.enable=true
+–spark.memory.offHeap.size = 1g
+④使用堆外内存干嘛？
+–用来做堆外缓存，好处是将缓存放在堆内内存中，会受JVM控制，影响GC垃圾回收。
+设置缓存级别为堆外缓存，persist(StorageLevel.OFF.HEAP)
+（7）AQE（Spark3.0.0新特性）
+①动态缩减分区个数
+②动态选择join策略
+③动态将数据倾斜分区拆分成子分区
+（8）DPP（Spark3.0.0新特性）
+动态分区裁剪
+
+
+
+
+Linux命令
+
+
+序号	命令	                        命令解释
+1	    top	                            查看内存
+2	    df -h	                        查看磁盘存储情况
+3	    iotop	                        查看磁盘IO读写(yum install iotop安装）
+4	    iotop -o	                    直接查看比较高的磁盘读写程序
+5	    netstat -tunlp | grep 端口号	查看端口占用情况
+6	    uptime	                        查看报告系统运行时长及平均负载
+7	    ps  aux	                        查看进程
+
+Shell常用工具  awk、sed、cut、sort
+

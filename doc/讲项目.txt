@@ -1,0 +1,43 @@
+
+
+
+
+
+
+
+
+
+数据清洗的步骤
+
+over number
+
+
+比较难的sql
+
+
+mysql 存储过程
+
+
+
+
+
+
+bin/spark-submit \
+--class org.apache.spark.examples.SparkPi \
+--master yarn \
+--deploy-mode cluster \
+./examples/jars/spark-examples_2.12-3.0.0.jar \
+10
+
+
+
+
+
+
+
+
+
+
+
+
+

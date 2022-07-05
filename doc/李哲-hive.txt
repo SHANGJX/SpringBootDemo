@@ -1,0 +1,69 @@
+
+1.2.2 hicw
+
+
+2.8.2 had
+
+
+
+
+
+员工数量问题， 部门成员
+数据量
+项目分期
+spark sql 运行环境 beline
+
+
+
+
+
+
+
+
+1、熟练使用Linux常用的操作命令, 了解Shell脚本编程
+2、掌握Hadoop体系架构各种组件, 熟悉MapReduce的工作原理
+3、了解HDFS架构, Yarn架构以及编写MapRduce程序, 熟悉Java语言
+4、熟悉Hive架构, 能用Hive进行海量数据的统计分析和查询, 熟悉Hive的调优
+5、熟练大数据数仓建模, 熟练进行业务开发
+6、熟练Flume和Sqoop技术。能用Flume做到高效的数据采集, 用Sqoop在Hadoop和关系型数据库之间传递数据
+7、熟悉Spark体系, 熟悉SparkSQL和PySpark
+8、了解常用的机器学习算法, 例如逻辑回归, 线性回归, 决策树, 随机森林等
+9、熟悉阿里云大数据平台Maxcompute, DataWorks, PyOdps等套件
+10、熟练使用Python语言, 了解Numpy和Pandas, 可以进行简单的爬虫(Selenium, Scrapy)
+11、熟练使用Quick BI, Tableau等工具进行可视化
+
+
+
+1.项目名称：现金贷用户贷款风险预测
+项目描述：该项目通过用户基本身份信息，消费行为，还款等数据，进行数据处理特征选取并建立逾期预测模型，来预测用户是否会逾期还款
+使用技术：Python+Pandas+Numpy+Scikit-Learn	
+分析过程：
+数据清洗阶段：
+1、数据完整性检查:使用pandas查看数据的类型及有无缺失
+2、缺失值处理：根据业务特点对缺失值采用均值或不填充，例如性别缺失单独一类
+3、异常值检验：检验是否有异常值并进行替换
+4、重复数据及含有特殊符号的数据检验：对重复数据进行删除
+5、数据拼接：对多个表进行拼接，方便处理
+特征工程阶段：
+1、特征筛选：删掉完全无用的特征以及共线性极强的特征
+2、特征构建：根据业务内容构建新特征，对类别特征进行独热编码
+3、特征提取：使用PCA等降维方法进行特征提取
+4、特征选择：用卡方检验、f检验进行特征选择
+建立模型阶段：
+1、建立用户贷款预测模型，分别构建逻辑回归模型和CART树分类模型
+2、采用ROC曲线评价法进行评估，选出最优模型
+总结：
+逻辑回归模型的分数更高, 精确率0.86, AUC为0.75, 结合预测模型筛选用户, 用户逾期率
+显著下降。后期可尝试Random_Forest继续改进模型。
+
+
+ssh-copy-id hadoop105
+ssh-copy-id hadoop106
+ssh-copy-id hadoop107
+
+
+/opt/cloudera/cm/schema/scm_prepare_database.sh mysql scm root 000000
+
+
+baseurl=http://hadoop105/cloudera-repo/
+ln -s /opt/jdk1.8.0_281  /usr/java/default
